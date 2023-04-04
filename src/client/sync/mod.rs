@@ -59,6 +59,8 @@ pub trait Reader: Client {
         _: Address,
         _: &[Word],
     ) -> Result<Vec<Word>>;
+
+    fn read_device_identification(&mut self, _: ReadDeviceIdCode, _: ObjectId) -> Result<(ConformityLevel,MoreFollows,NextObjectId,Vec<ReadDevIdObject>)>;
 }
 
 /// A transport independent synchronous writer trait.
@@ -153,6 +155,16 @@ impl Reader for Context {
             self.timeout,
             self.async_ctx
                 .read_write_multiple_registers(read_addr, read_cnt, write_addr, write_data),
+        )
+    }
+
+    fn read_device_identification(&mut self, read_device_id_code: ReadDeviceIdCode, object_id: ObjectId) -> Result<(ConformityLevel,MoreFollows,NextObjectId,Vec<ReadDevIdObject>)>
+    {
+        block_on_with_timeout(
+            &self.runtime,
+            self.timeout,
+            self.async_ctx
+                .read_device_identification(read_device_id_code, object_id),
         )
     }
 }
