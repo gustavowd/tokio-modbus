@@ -7,6 +7,7 @@ use std::{
     fmt::Debug,
     io::{Error, ErrorKind},
 };
+use gpio::GpioOut;
 
 use async_trait::async_trait;
 
@@ -185,10 +186,32 @@ impl Reader for Context {
         addr: Address,
         cnt: Quantity,
     ) -> Result<Vec<Word>, Error> {
+        // get gpio pin to control modbus bus
+        let mut de_pin = gpio::sysfs::SysFsGpioOutput::open(23);
+        let mut re_pin = gpio::sysfs::SysFsGpioOutput::open(24);
+
+        match de_pin.as_mut() {
+            Ok(gpio) => gpio.set_high().expect("could not set gpio 23"),
+            Err(_) => {},
+        }
+        match re_pin.as_mut() {
+            Ok(gpio) => gpio.set_high().expect("could not set gpio 24"),
+            Err(_) => {},
+        }
+
         let rsp = self
             .client
             .call(Request::ReadHoldingRegisters(addr, cnt))
             .await?;
+
+        match de_pin.as_mut() {
+            Ok(gpio) => gpio.set_low().expect("could not set gpio 23"),
+            Err(_) => {},
+        }
+        match re_pin.as_mut() {
+            Ok(gpio) => gpio.set_low().expect("could not set gpio 24"),
+            Err(_) => {},
+        }
 
         if let Response::ReadHoldingRegisters(rsp) = rsp {
             if rsp.len() != cnt.into() {
@@ -207,6 +230,19 @@ impl Reader for Context {
         write_addr: Address,
         write_data: &[Word],
     ) -> Result<Vec<Word>, Error> {
+
+        let mut de_pin = gpio::sysfs::SysFsGpioOutput::open(23);
+        let mut re_pin = gpio::sysfs::SysFsGpioOutput::open(24);
+
+        match de_pin.as_mut() {
+            Ok(gpio) => gpio.set_high().expect("could not set gpio 23"),
+            Err(_) => {},
+        }
+        match re_pin.as_mut() {
+            Ok(gpio) => gpio.set_high().expect("could not set gpio 24"),
+            Err(_) => {},
+        }
+
         let rsp = self
             .client
             .call(Request::ReadWriteMultipleRegisters(
@@ -216,6 +252,15 @@ impl Reader for Context {
                 write_data.to_vec(),
             ))
             .await?;
+
+        match de_pin.as_mut() {
+            Ok(gpio) => gpio.set_low().expect("could not set gpio 23"),
+            Err(_) => {},
+        }
+        match re_pin.as_mut() {
+            Ok(gpio) => gpio.set_low().expect("could not set gpio 24"),
+            Err(_) => {},
+        }
 
         if let Response::ReadWriteMultipleRegisters(rsp) = rsp {
             if rsp.len() != read_cnt.into() {
