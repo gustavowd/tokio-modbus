@@ -6,7 +6,7 @@ use std::{
     io::{Error, ErrorKind},
 };
 //use gpio::GpioOut;
-use rppal::gpio::Gpio;
+use gpio::GpioOut;
 
 use futures_util::{sink::SinkExt as _, stream::StreamExt as _};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -55,30 +55,54 @@ where
         let req_hdr = req_adu.hdr;
 
         // get gpio pin to control modbus bus
-        let mut de_pin = Gpio::new().unwrap().get(23).unwrap().into_output();
-        let mut re_pin = Gpio::new().unwrap().get(24).unwrap().into_output();
+        let mut de_pin = gpio::sysfs::SysFsGpioOutput::open(23);
+        let mut re_pin = gpio::sysfs::SysFsGpioOutput::open(24);
 
-        de_pin.set_high();
-        re_pin.set_high();
+        match de_pin.as_mut() {
+            Ok(gpio) => gpio.set_high().expect("could not set gpio 23"),
+            Err(_) => {},
+        }
+        match re_pin.as_mut() {
+            Ok(gpio) => gpio.set_high().expect("could not set gpio 24"),
+            Err(_) => {},
+        }
 
         self.framed.send(req_adu).await?;
 
-        de_pin.set_low();
-        re_pin.set_low();
+        match de_pin.as_mut() {
+            Ok(gpio) => gpio.set_low().expect("could not set gpio 23"),
+            Err(_) => {},
+        }
+        match re_pin.as_mut() {
+            Ok(gpio) => gpio.set_low().expect("could not set gpio 24"),
+            Err(_) => {},
+        }
 
         let res_adu = self
             .framed
             .next()
             .await
             .unwrap_or_else(|| {
-                de_pin.set_high();
-                re_pin.set_high();
+                match de_pin.as_mut() {
+                    Ok(gpio) => gpio.set_high().expect("could not set gpio 23"),
+                    Err(_) => {},
+                }
+                match re_pin.as_mut() {
+                    Ok(gpio) => gpio.set_high().expect("could not set gpio 24"),
+                    Err(_) => {},
+                }
                 Err(Error::from(ErrorKind::BrokenPipe))
             }
             )?;
 
-        de_pin.set_high();
-        re_pin.set_high();
+            match de_pin.as_mut() {
+                Ok(gpio) => gpio.set_high().expect("could not set gpio 23"),
+                Err(_) => {},
+            }
+            match re_pin.as_mut() {
+                Ok(gpio) => gpio.set_high().expect("could not set gpio 24"),
+                Err(_) => {},
+            }
 
         match res_adu.pdu {
             ResponsePdu(Ok(res)) => verify_response_header(req_hdr, res_adu.hdr).and(Ok(res)),

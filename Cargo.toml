@@ -24,8 +24,8 @@ all-features = true
 # <https://users.rust-lang.org/t/psa-please-specify-precise-dependency-versions-in-cargo-toml/71277>
 
 [dependencies]
-#gpio = "0.4.1"
-rppal = "0.14.1"
+gpio = "0.4.1"
+#rppal = "0.14.1"
 async-trait = "0.1.66"
 byteorder = "1.4.3"
 bytes = "1.4.0"
