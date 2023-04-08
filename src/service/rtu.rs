@@ -5,8 +5,9 @@ use std::{
     fmt,
     io::{Error, ErrorKind},
 };
+
 //use gpio::GpioOut;
-use gpio::GpioOut;
+use rppal::gpio::{Gpio, OutputPin};
 
 use futures_util::{sink::SinkExt as _, stream::StreamExt as _};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -55,9 +56,47 @@ where
         let req_hdr = req_adu.hdr;
 
         // get gpio pin to control modbus bus
-        let mut de_pin = gpio::sysfs::SysFsGpioOutput::open(23);
-        let mut re_pin = gpio::sysfs::SysFsGpioOutput::open(24);
+        let mut de_pin: Option<OutputPin> = None;
+        let mut re_pin: Option<OutputPin> = None;
+        //let mut de_pin = gpio::sysfs::SysFsGpioOutput::open(23);
+        //let mut re_pin = gpio::sysfs::SysFsGpioOutput::open(24);
+        let de_port = Gpio::new();
+        let re_port = Gpio::new();//.unwrap().get(24).unwrap().into_output();
+        match de_port {
+            Ok (de) => {
+                match de.get(23) {
+                    Ok (de) => {
+                        de_pin = Some(de.into_output());
+                    },
+                    Err(_) => {}
+                }
 
+            },
+            Err(_) => {}
+        }
+
+        match re_port {
+            Ok (re) => {
+                match re.get(23) {
+                    Ok (re) => {
+                        re_pin = Some(re.into_output());
+                    },
+                    Err(_) => {}
+                }
+
+            },
+            Err(_) => {}
+        }
+
+        match de_pin.as_mut() {
+            Some(de) => de.set_high(),
+            None => {},
+        }
+        match re_pin.as_mut() {
+            Some(de) => de.set_high(),
+            None => {},
+        }
+        /* 
         match de_pin.as_mut() {
             Ok(gpio) => gpio.set_high().expect("could not set gpio 23"),
             Err(_) => {},
@@ -66,9 +105,19 @@ where
             Ok(gpio) => gpio.set_high().expect("could not set gpio 24"),
             Err(_) => {},
         }
+        */
 
         self.framed.send(req_adu).await?;
 
+        match de_pin.as_mut() {
+            Some(de) => de.set_low(),
+            None => {},
+        }
+        match re_pin.as_mut() {
+            Some(de) => de.set_low(),
+            None => {},
+        }
+        /* 
         match de_pin.as_mut() {
             Ok(gpio) => gpio.set_low().expect("could not set gpio 23"),
             Err(_) => {},
@@ -77,12 +126,14 @@ where
             Ok(gpio) => gpio.set_low().expect("could not set gpio 24"),
             Err(_) => {},
         }
+        */
 
         let res_adu = self
             .framed
             .next()
             .await
             .unwrap_or_else(|| {
+                /*
                 match de_pin.as_mut() {
                     Ok(gpio) => gpio.set_high().expect("could not set gpio 23"),
                     Err(_) => {},
@@ -91,18 +142,40 @@ where
                     Ok(gpio) => gpio.set_high().expect("could not set gpio 24"),
                     Err(_) => {},
                 }
+                */
+                match de_pin.as_mut() {
+                    Some(de) => de.set_high(),
+                    None => {},
+                }
+                match re_pin.as_mut() {
+                    Some(de) => de.set_high(),
+                    None => {},
+                }
                 Err(Error::from(ErrorKind::BrokenPipe))
             }
             )?;
 
-            match de_pin.as_mut() {
-                Ok(gpio) => gpio.set_high().expect("could not set gpio 23"),
-                Err(_) => {},
-            }
-            match re_pin.as_mut() {
-                Ok(gpio) => gpio.set_high().expect("could not set gpio 24"),
-                Err(_) => {},
-            }
+        /*
+        match de_pin.as_mut() {
+            Ok(gpio) => gpio.set_high().expect("could not set gpio 23"),
+            Err(_) => {},
+        }
+        match re_pin.as_mut() {
+            Ok(gpio) => gpio.set_high().expect("could not set gpio 24"),
+            Err(_) => {},
+        }
+        */
+        match de_pin.as_mut() {
+            Some(de) => de.set_high(),
+            None => {},
+        }
+        match re_pin.as_mut() {
+            Some(de) => de.set_high(),
+            None => {},
+        }
+
+        drop(de_pin);
+        drop(re_pin);
 
         match res_adu.pdu {
             ResponsePdu(Ok(res)) => verify_response_header(req_hdr, res_adu.hdr).and(Ok(res)),
