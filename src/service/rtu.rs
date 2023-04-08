@@ -93,7 +93,7 @@ where
             None => {},
         }
         match re_pin.as_mut() {
-            Some(de) => de.set_high(),
+            Some(re) => re.set_high(),
             None => {},
         }
         /* 
@@ -114,7 +114,7 @@ where
             None => {},
         }
         match re_pin.as_mut() {
-            Some(de) => de.set_low(),
+            Some(re) => re.set_low(),
             None => {},
         }
         /* 
@@ -148,7 +148,7 @@ where
                     None => {},
                 }
                 match re_pin.as_mut() {
-                    Some(de) => de.set_high(),
+                    Some(re) => re.set_high(),
                     None => {},
                 }
                 Err(Error::from(ErrorKind::BrokenPipe))
@@ -170,7 +170,7 @@ where
             None => {},
         }
         match re_pin.as_mut() {
-            Some(de) => de.set_high(),
+            Some(re) => re.set_high(),
             None => {},
         }
 
