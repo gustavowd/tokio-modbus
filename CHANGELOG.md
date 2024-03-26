@@ -1,9 +1,77 @@
-<!-- SPDX-FileCopyrightText: Copyright (c) 2017-2023 slowtec GmbH <post@slowtec.de> -->
+<!-- SPDX-FileCopyrightText: Copyright (c) 2017-2024 slowtec GmbH <post@slowtec.de> -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
 # Changelog
 
-## v0.8.0 (Unreleased)
+## v0.12.0 (2024-03-21)
+
+- Client: Support handling of _Modbus_ exceptions by using nested `Result`s.
+
+### Breaking Changes
+
+- Client: All methods in the `Client`, `Reader` and `Writer` traits now return
+  nested `Result` values that both need to be handled explicitly.
+
+  ```diff
+  async fn read_coils(&mut self, _: Address, _: Quantity)
+  - -> Result<Vec<Coil>, std::io::Error>;
+  + -> Result<Result<Vec<Coil>, Exception>, std::io::Error>;
+  ```
+
+The type alias `tokio_modbus::Result<T>` facilitates referencing the new return
+types.
+
+```rust
+pub type Result<T> = Result<Result<T, Exception>, std::io::Error>
+```
+
+## v0.11.0 (2024-01-28)
+
+- Server: Remove `Sync` and `Unpin` trait bounds from `Service::call()` future
+  result.
+- Feature: Add `Exception` to the public API.
+- Example: Update examples with new `Service` trait for the Server.
+- Tests: Add `Exception` integration tests for `tcp-server`, `rtu-server` and
+  `rtu-over-tcp-server`.
+
+### Breaking Changes
+
+- Server: Update `Service::Future` generic associated type.
+- Server: Remove `Service::Response` and `Service::Error` generic associated
+  type.
+
+## v0.10.0 (2024-01-03)
+
+- Feature: Retrieve the `FunctionCode` of a `Request`/`Response`.
+- Feature: Add `rtu-over-tcp-server` for _RTU over TCP_ server skeleton.
+
+### Breaking Changes
+
+- Exclude `rtu-server`/`tcp-server` from default features.
+- `FunctionCode`: Replace `type` alias with `enum`.
+
+## v0.9.0 (2023-07-26)
+
+- Optimization: Avoid allocations when writing multiple coils/registers.
+- Optimization: Avoid allocations when receiving custom responses.
+
+### Breaking Changes
+
+- `Request`: Requires a lifetime and stores multiple coils/registers wrapped
+  into `Cow` to avoid allocations.
+- `Response::Custom`: The payload is returned as `Bytes` instead of `Vec` to
+  avoid allocations.
+
+## v0.8.2 (2023-06-15)
+
+- Clear rx buffer before sending to help with error recovery on unreliable
+  physical connections [#198](https://github.com/slowtec/tokio-modbus/pull/198)
+
+## v0.8.1 (2023-05-22)
+
+- Fix `rtu-sync` build
+
+## v0.8.0 (2023-04-24)
 
 - TCP Server: Replace `NewService` trait with closures and never panic
 - TCP Server: Stabilize "tcp-server" feature
@@ -11,6 +79,9 @@
 - RTU Server: Remove `NewService` trait and pass instance directly
 - Fix (sync): No timeout while establishing serial RTU connections
 - Add: TLS client and server examples
+- Fix: Limit retrying Modbus RTU communication to 20 times instead of looping
+  infinitely
+- Increase Minimum Supported Rust Version to 1.65
 
 ### Breaking Changes
 
@@ -20,18 +91,21 @@
 
 ## v0.7.1 (2023-02-28)
 
-- Fix (sync): Panic when using client-side timeouts [#155](https://github.com/slowtec/tokio-modbus/issues/155)
+- Fix (sync): Panic when using client-side timeouts
+  [#155](https://github.com/slowtec/tokio-modbus/issues/155)
 - tcp-server: Upgrade socket2 dependency
 
 ## v0.7.0 (2023-02-14)
 
-- Added: Optional timeout for synchronous RTU/TCP operations [#125](https://github.com/slowtec/tokio-modbus/issues/125).
+- Added: Optional timeout for synchronous RTU/TCP operations
+  [#125](https://github.com/slowtec/tokio-modbus/issues/125).
 
 ### Breaking Changes
 
 - Features: Added "rtu-sync" as a replacement and superset of "rtu" and "sync"
 - Features: Added "tcp-sync" as a replacement and superset of "tcp" and "sync"
-- Features: Added "rtu-server" as a replacement and superset of "rtu" and "server"
+- Features: Added "rtu-server" as a replacement and superset of "rtu" and
+  "server"
 - Server: Removed inconsistent `server::*` re-exports from `prelude::tcp`
 
 ## v0.6.1 (2023-02-13)
@@ -45,15 +119,18 @@
 
 ### Breaking Changes
 
-- Masked write register requests and responses are now handled by the new `MaskWriteRegister` variant, not under the `Custom` variant.
+- Masked write register requests and responses are now handled by the new
+  `MaskWriteRegister` variant, not under the `Custom` variant.
 
 ## v0.5.4 (2023-01-18)
 
-- Fix (Windows): Upgrade dependencies to fix build failures on Windows for Tokio 1.23.0 and later.
+- Fix (Windows): Upgrade dependencies to fix build failures on Windows for Tokio
+  1.23.0 and later.
 
 ## v0.5.3 (2022-06-22)
 
-- Fix (RTU/sync): Execute SerialStream::open within an async runtime [#116](https://github.com/slowtec/tokio-modbus/pull/116)
+- Fix (RTU/sync): Execute SerialStream::open within an async runtime
+  [#116](https://github.com/slowtec/tokio-modbus/pull/116)
 
 ## v0.5.2 (2021-12-05)
 
@@ -62,7 +139,8 @@
 ## v0.5.1 (2021-11-21)
 
 - Fix: require tokio/rt for sync feature
-- Changed: Update methods on TCP server to be async (only concerns `tcp-server` feature)
+- Changed: Update methods on TCP server to be async (only concerns `tcp-server`
+  feature)
 
 ## v0.5.0 (2021-08-20)
 
@@ -70,7 +148,8 @@
 - Derived `Debug` for client-side RTU/TCP `Context`
 - Removed client-side `SharedContext`
 - Upgraded [tokio](https://tokio.rs/) version from 0.2 to 1
-- Switched from deprecated [net2](https://github.com/deprecrated/net2-rs) to [socket2](https://github.com/rust-lang/socket2)
+- Switched from deprecated [net2](https://github.com/deprecrated/net2-rs) to
+  [socket2](https://github.com/rust-lang/socket2)
 
 ## v0.4.2 (2021-12-05)
 
@@ -79,7 +158,8 @@
 ## v0.4.1 (2021-08-13)
 
 - Fixed handling of _broken pipe_ errors in RTU service
-- Fixed multiplication overflow for function 1 and 2 [#87](https://github.com/slowtec/tokio-modbus/pull/87)
+- Fixed multiplication overflow for function 1 and 2
+  [#87](https://github.com/slowtec/tokio-modbus/pull/87)
 
 ## v0.4.0 (2020-03-13)
 
@@ -93,9 +173,8 @@
 
 ### Breaking Changes
 
-Due to the move to async/await and tokio v0.2.x you'll need to adjust
-your current code.
-Here are some lines as example:
+Due to the move to async/await and tokio v0.2.x you'll need to adjust your
+current code. Here are some lines as example:
 
 ```diff
 -let mut core = Core::new().unwrap();
@@ -122,25 +201,25 @@ Here are some lines as example:
 
 ## v0.3.3 (2019-05-16)
 
-- Fixed reading coils: Truncate response payload to match the requested
-  number of coils or discrete inputs.
+- Fixed reading coils: Truncate response payload to match the requested number
+  of coils or discrete inputs.
 
 ## v0.3.2 (2019-04-15)
 
-- Client: Added a `Disconnect` request as _poison pill_ for stopping
-  the client service and to release the underlying transport
+- Client: Added a `Disconnect` request as _poison pill_ for stopping the client
+  service and to release the underlying transport
 - Added utilities to share a single Modbus context within a thread for
   communicating with multiple devices
-- Added utility functions to disconnect and reconnect stale connections
-  after errors
+- Added utility functions to disconnect and reconnect stale connections after
+  errors
 - Minimal Rust version: `1.34.0`
 
 ### Potential breaking change
 
 Extending the `Request` enum with the new variant `Disconnect` might break
-existing code. This variant is only used internally within the client and
-will never be sent across the wire and can safely be ignored by both clients
-and servers!
+existing code. This variant is only used internally within the client and will
+never be sent across the wire and can safely be ignored by both clients and
+servers!
 
 ## v0.3.1 (2019-04-08)
 
@@ -188,7 +267,8 @@ and servers!
 
 - Split `Client` trait into `Client` + `Reader` + `Writer` traits
 
-- Use free functions in (nested) submodules for creating/connecting a client context
+- Use free functions in (nested) submodules for creating/connecting a client
+  context
 
   ```diff
   -  Client::connect_tcp(...);
@@ -210,8 +290,8 @@ and servers!
   +  sync::rtu::connect_device(...);
   ```
 
-- Reorder parameters of asynchronous connect() functions,
-  i.e. the Tokio handle is always the first parameter
+- Reorder parameters of asynchronous connect() functions, i.e. the Tokio handle
+  is always the first parameter
 
 - Move TCP server into submodule
 

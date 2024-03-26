@@ -1,9 +1,7 @@
-// SPDX-FileCopyrightText: Copyright (c) 2017-2023 slowtec GmbH <post@slowtec.de>
+// SPDX-FileCopyrightText: Copyright (c) 2017-2024 slowtec GmbH <post@slowtec.de>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Synchronous Modbus client
-
-#![allow(missing_docs)]
 
 #[cfg(feature = "rtu-sync")]
 pub mod rtu;
@@ -11,11 +9,11 @@ pub mod rtu;
 #[cfg(feature = "tcp-sync")]
 pub mod tcp;
 
-use std::{future::Future, io::Result, time::Duration};
+use std::{future::Future, io, time::Duration};
 
-use futures::future::Either;
+use futures_util::future::Either;
 
-use crate::{frame::*, slave::*};
+use crate::{frame::*, slave::*, Result};
 
 use super::{
     Client as AsyncClient, Context as AsyncContext, Reader as AsyncReader, SlaveContext,
@@ -25,8 +23,8 @@ use super::{
 fn block_on_with_timeout<T>(
     runtime: &tokio::runtime::Runtime,
     timeout: Option<Duration>,
-    task: impl Future<Output = Result<T>>,
-) -> Result<T> {
+    task: impl Future<Output = io::Result<T>>,
+) -> io::Result<T> {
     let task = if let Some(duration) = timeout {
         Either::Left(async move {
             tokio::time::timeout(duration, task)
@@ -43,30 +41,34 @@ fn block_on_with_timeout<T>(
 
 /// A transport independent synchronous client trait.
 pub trait Client: SlaveContext {
-    fn call(&mut self, req: Request) -> Result<Response>;
+    fn call(&mut self, req: Request<'_>) -> Result<Response>;
 }
 
 /// A transport independent synchronous reader trait.
+///
+/// The synchronous counterpart of the asynchronous [`Reader`](`crate::client::Reader`) trait.
 pub trait Reader: Client {
-    fn read_coils(&mut self, _: Address, _: Quantity) -> Result<Vec<Coil>>;
-    fn read_discrete_inputs(&mut self, _: Address, _: Quantity) -> Result<Vec<Coil>>;
-    fn read_input_registers(&mut self, _: Address, _: Quantity) -> Result<Vec<Word>>;
-    fn read_holding_registers(&mut self, _: Address, _: Quantity) -> Result<Vec<Word>>;
+    fn read_coils(&mut self, addr: Address, cnt: Quantity) -> Result<Vec<Coil>>;
+    fn read_discrete_inputs(&mut self, addr: Address, cnt: Quantity) -> Result<Vec<Coil>>;
+    fn read_input_registers(&mut self, addr: Address, cnt: Quantity) -> Result<Vec<Word>>;
+    fn read_holding_registers(&mut self, addr: Address, cnt: Quantity) -> Result<Vec<Word>>;
     fn read_write_multiple_registers(
         &mut self,
-        _: Address,
-        _: Quantity,
-        _: Address,
-        _: &[Word],
+        read_addr: Address,
+        read_count: Quantity,
+        write_addr: Address,
+        write_data: &[Word],
     ) -> Result<Vec<Word>>;
 }
 
 /// A transport independent synchronous writer trait.
+///
+/// The synchronous counterpart of the asynchronous [`Writer`](`crate::client::Writer`) trait.
 pub trait Writer: Client {
-    fn write_single_coil(&mut self, _: Address, _: Coil) -> Result<()>;
-    fn write_multiple_coils(&mut self, _: Address, _: &[Coil]) -> Result<()>;
-    fn write_single_register(&mut self, _: Address, _: Word) -> Result<()>;
-    fn write_multiple_registers(&mut self, _: Address, _: &[Word]) -> Result<()>;
+    fn write_single_coil(&mut self, addr: Address, coil: Coil) -> Result<()>;
+    fn write_multiple_coils(&mut self, addr: Address, coils: &[Coil]) -> Result<()>;
+    fn write_single_register(&mut self, addr: Address, word: Word) -> Result<()>;
+    fn write_multiple_registers(&mut self, addr: Address, words: &[Word]) -> Result<()>;
 }
 
 /// A synchronous Modbus client context.
@@ -97,7 +99,7 @@ impl Context {
 }
 
 impl Client for Context {
-    fn call(&mut self, req: Request) -> Result<Response> {
+    fn call(&mut self, req: Request<'_>) -> Result<Response> {
         block_on_with_timeout(&self.runtime, self.timeout, self.async_ctx.call(req))
     }
 }
@@ -144,7 +146,7 @@ impl Reader for Context {
     fn read_write_multiple_registers(
         &mut self,
         read_addr: Address,
-        read_cnt: Quantity,
+        read_count: Quantity,
         write_addr: Address,
         write_data: &[Word],
     ) -> Result<Vec<Word>> {
@@ -152,7 +154,7 @@ impl Reader for Context {
             &self.runtime,
             self.timeout,
             self.async_ctx
-                .read_write_multiple_registers(read_addr, read_cnt, write_addr, write_data),
+                .read_write_multiple_registers(read_addr, read_count, write_addr, write_data),
         )
     }
 }
@@ -174,19 +176,19 @@ impl Writer for Context {
         )
     }
 
-    fn write_single_coil(&mut self, addr: Address, coil: Coil) -> Result<()> {
+    fn write_single_coil(&mut self, addr: Address, data: Coil) -> Result<()> {
         block_on_with_timeout(
             &self.runtime,
             self.timeout,
-            self.async_ctx.write_single_coil(addr, coil),
+            self.async_ctx.write_single_coil(addr, data),
         )
     }
 
-    fn write_multiple_coils(&mut self, addr: Address, coils: &[Coil]) -> Result<()> {
+    fn write_multiple_coils(&mut self, addr: Address, data: &[Coil]) -> Result<()> {
         block_on_with_timeout(
             &self.runtime,
             self.timeout,
-            self.async_ctx.write_multiple_coils(addr, coils),
+            self.async_ctx.write_multiple_coils(addr, data),
         )
     }
 }

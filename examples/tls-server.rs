@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2017-2023 slowtec GmbH <post@slowtec.de>
+// SPDX-FileCopyrightText: Copyright (c) 2017-2024 slowtec GmbH <post@slowtec.de>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // load_certs() and particially load_keys() functions were copied from an example of the tokio tls library, available at:
@@ -9,6 +9,7 @@
 use std::{
     collections::HashMap,
     fs::File,
+    future,
     io::{self, BufReader},
     net::SocketAddr,
     path::Path,
@@ -16,13 +17,13 @@ use std::{
     time::Duration,
 };
 
-use futures::future;
 use pkcs8::der::Decode;
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_modbus::{prelude::*, server::tcp::Server};
 use tokio_rustls::rustls::{self, Certificate, OwnedTrustAnchor, PrivateKey};
-use tokio_rustls::{webpki, TlsAcceptor, TlsConnector};
+use tokio_rustls::{TlsAcceptor, TlsConnector};
+use webpki::TrustAnchor;
 
 fn load_certs(path: &Path) -> io::Result<Vec<Certificate>> {
     certs(&mut BufReader::new(File::open(path)?))
@@ -45,8 +46,8 @@ fn load_keys(path: &Path, password: Option<&str>) -> io::Result<Vec<PrivateKey>>
         let mut iter = pem::parse_many(content)
             .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err.to_string()))?
             .into_iter()
-            .filter(|x| x.tag == expected_tag)
-            .map(|x| x.contents);
+            .filter(|x| x.tag() == expected_tag)
+            .map(|x| x.contents().to_vec());
 
         match iter.next() {
             Some(key) => match password {
@@ -76,51 +77,34 @@ struct ExampleService {
 }
 
 impl tokio_modbus::server::Service for ExampleService {
-    type Request = Request;
-    type Response = Response;
-    type Error = std::io::Error;
-    type Future = future::Ready<Result<Self::Response, Self::Error>>;
+    type Request = Request<'static>;
+    type Future = future::Ready<Result<Response, Exception>>;
 
     fn call(&self, req: Self::Request) -> Self::Future {
         match req {
-            Request::ReadInputRegisters(addr, cnt) => {
-                match register_read(&self.input_registers.lock().unwrap(), addr, cnt) {
-                    Ok(values) => future::ready(Ok(Response::ReadInputRegisters(values))),
-                    Err(err) => future::ready(Err(err)),
-                }
-            }
-            Request::ReadHoldingRegisters(addr, cnt) => {
-                match register_read(&self.holding_registers.lock().unwrap(), addr, cnt) {
-                    Ok(values) => future::ready(Ok(Response::ReadHoldingRegisters(values))),
-                    Err(err) => future::ready(Err(err)),
-                }
-            }
-            Request::WriteMultipleRegisters(addr, values) => {
-                match register_write(&mut self.holding_registers.lock().unwrap(), addr, &values) {
-                    Ok(_) => future::ready(Ok(Response::WriteMultipleRegisters(
-                        addr,
-                        values.len() as u16,
-                    ))),
-                    Err(err) => future::ready(Err(err)),
-                }
-            }
-            Request::WriteSingleRegister(addr, value) => {
-                match register_write(
+            Request::ReadInputRegisters(addr, cnt) => future::ready(
+                register_read(&self.input_registers.lock().unwrap(), addr, cnt)
+                    .map(Response::ReadInputRegisters),
+            ),
+            Request::ReadHoldingRegisters(addr, cnt) => future::ready(
+                register_read(&self.holding_registers.lock().unwrap(), addr, cnt)
+                    .map(Response::ReadHoldingRegisters),
+            ),
+            Request::WriteMultipleRegisters(addr, values) => future::ready(
+                register_write(&mut self.holding_registers.lock().unwrap(), addr, &values)
+                    .map(|_| Response::WriteMultipleRegisters(addr, values.len() as u16)),
+            ),
+            Request::WriteSingleRegister(addr, value) => future::ready(
+                register_write(
                     &mut self.holding_registers.lock().unwrap(),
                     addr,
                     std::slice::from_ref(&value),
-                ) {
-                    Ok(_) => future::ready(Ok(Response::WriteSingleRegister(addr, value))),
-                    Err(err) => future::ready(Err(err)),
-                }
-            }
+                )
+                .map(|_| Response::WriteSingleRegister(addr, value)),
+            ),
             _ => {
                 println!("SERVER: Exception::IllegalFunction - Unimplemented function code in request: {req:?}");
-                // TODO: We want to return a Modbus Exception response `IllegalFunction`. https://github.com/slowtec/tokio-modbus/issues/165
-                future::ready(Err(std::io::Error::new(
-                    std::io::ErrorKind::AddrNotAvailable,
-                    "Unimplemented function code in request".to_string(),
-                )))
+                future::ready(Err(Exception::IllegalFunction))
             }
         }
     }
@@ -149,19 +133,15 @@ fn register_read(
     registers: &HashMap<u16, u16>,
     addr: u16,
     cnt: u16,
-) -> Result<Vec<u16>, std::io::Error> {
+) -> Result<Vec<u16>, Exception> {
     let mut response_values = vec![0; cnt.into()];
     for i in 0..cnt {
         let reg_addr = addr + i;
         if let Some(r) = registers.get(&reg_addr) {
             response_values[i as usize] = *r;
         } else {
-            // TODO: Return a Modbus Exception response `IllegalDataAddress` https://github.com/slowtec/tokio-modbus/issues/165
             println!("SERVER: Exception::IllegalDataAddress");
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::AddrNotAvailable,
-                format!("no register at address {reg_addr}"),
-            ));
+            return Err(Exception::IllegalDataAddress);
         }
     }
 
@@ -174,18 +154,14 @@ fn register_write(
     registers: &mut HashMap<u16, u16>,
     addr: u16,
     values: &[u16],
-) -> Result<(), std::io::Error> {
+) -> Result<(), Exception> {
     for (i, value) in values.iter().enumerate() {
         let reg_addr = addr + i as u16;
         if let Some(r) = registers.get_mut(&reg_addr) {
             *r = *value;
         } else {
-            // TODO: Return a Modbus Exception response `IllegalDataAddress` https://github.com/slowtec/tokio-modbus/issues/165
             println!("SERVER: Exception::IllegalDataAddress");
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::AddrNotAvailable,
-                format!("no register at address {reg_addr}"),
-            ));
+            return Err(Exception::IllegalDataAddress);
         }
     }
 
@@ -248,14 +224,14 @@ async fn client_context(socket_addr: SocketAddr) {
             let mut pem = BufReader::new(File::open(ca_path).unwrap());
             let certs = rustls_pemfile::certs(&mut pem).unwrap();
             let trust_anchors = certs.iter().map(|cert| {
-                let ta = webpki::TrustAnchor::try_from_cert_der(&cert[..]).unwrap();
+                let ta = TrustAnchor::try_from_cert_der(&cert[..]).unwrap();
                 OwnedTrustAnchor::from_subject_spki_name_constraints(
                     ta.subject,
                     ta.spki,
                     ta.name_constraints,
                 )
             });
-            root_cert_store.add_server_trust_anchors(trust_anchors);
+            root_cert_store.add_trust_anchors(trust_anchors);
 
             let domain = "localhost";
             let cert_path = Path::new("./pki/client.pem");
@@ -266,7 +242,7 @@ async fn client_context(socket_addr: SocketAddr) {
             let config = rustls::ClientConfig::builder()
                 .with_safe_defaults()
                 .with_root_certificates(root_cert_store)
-                .with_single_cert(certs, keys.remove(0))
+                .with_client_auth_cert(certs, keys.remove(0))
                 .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))
                 .unwrap();
             let connector = TlsConnector::from(Arc::new(config));
@@ -286,28 +262,27 @@ async fn client_context(socket_addr: SocketAddr) {
             println!("CLIENT: Reading 2 input registers...");
             let response = ctx.read_input_registers(0x00, 2).await.unwrap();
             println!("CLIENT: The result is '{response:?}'");
-            assert_eq!(response, vec![1234, 5678]);
+            assert_eq!(response, Ok(vec![1234, 5678]));
 
             println!("CLIENT: Writing 2 holding registers...");
             ctx.write_multiple_registers(0x01, &[7777, 8888])
                 .await
+                .unwrap()
                 .unwrap();
 
             // Read back a block including the two registers we wrote.
             println!("CLIENT: Reading 4 holding registers...");
             let response = ctx.read_holding_registers(0x00, 4).await.unwrap();
             println!("CLIENT: The result is '{response:?}'");
-            assert_eq!(response, vec![10, 7777, 8888, 40]);
+            assert_eq!(response, Ok(vec![10, 7777, 8888, 40]));
 
             // Now we try to read with an invalid register address.
             // This should return a Modbus exception response with the code
             // IllegalDataAddress.
             println!("CLIENT: Reading nonexisting holding register address... (should return IllegalDataAddress)");
-            let response = ctx.read_holding_registers(0x100, 1).await;
+            let response = ctx.read_holding_registers(0x100, 1).await.unwrap();
             println!("CLIENT: The result is '{response:?}'");
-            assert!(response.is_err());
-            // TODO: How can Modbus client identify Modbus exception responses? E.g. here we expect IllegalDataAddress
-            // Question here: https://github.com/slowtec/tokio-modbus/issues/169
+            assert_eq!(response, Err(Exception::IllegalDataAddress));
 
             println!("CLIENT: Done.")
         },

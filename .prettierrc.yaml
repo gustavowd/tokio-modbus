@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2017-2023 slowtec GmbH <post@slowtec.de>
+# SPDX-FileCopyrightText: Copyright (c) 2017-2024 slowtec GmbH <post@slowtec.de>
 # SPDX-License-Identifier: CC0-1.0
 
 overrides:
@@ -8,3 +8,8 @@ overrides:
       tabWidth: 2
       # in double quotes you can use escapes
       singleQuote: false
+  - files:
+      - "**/*.md"
+    options:
+      printWidth: 80
+      proseWrap: always

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2017-2023 slowtec GmbH <post@slowtec.de>
+// SPDX-FileCopyrightText: Copyright (c) 2017-2024 slowtec GmbH <post@slowtec.de>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Common types and traits
@@ -29,7 +29,7 @@ pub mod sync {
 ///////////////////////////////////////////////////////////////////
 /// Types
 ///////////////////////////////////////////////////////////////////
-pub use crate::{Request, Response};
+pub use crate::{Exception, Request, Response};
 pub use crate::{Slave, SlaveId};
 
 #[cfg(feature = "server")]

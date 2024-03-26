@@ -1,14 +1,17 @@
-// SPDX-FileCopyrightText: Copyright (c) 2017-2023 slowtec GmbH <post@slowtec.de>
+// SPDX-FileCopyrightText: Copyright (c) 2017-2024 slowtec GmbH <post@slowtec.de>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use super::*;
-
-use crate::frame::tcp::*;
+use std::io::{Error, ErrorKind, Result};
 
 use byteorder::{BigEndian, ByteOrder};
-use bytes::{BufMut, Bytes, BytesMut};
-use std::io::{Error, ErrorKind, Result};
 use tokio_util::codec::{Decoder, Encoder};
+
+use crate::{
+    bytes::{BufMut, Bytes, BytesMut},
+    frame::tcp::*,
+};
+
+use super::*;
 
 const HEADER_LEN: usize = 7;
 
@@ -113,10 +116,10 @@ impl Decoder for ClientCodec {
 }
 
 impl Decoder for ServerCodec {
-    type Item = RequestAdu;
+    type Item = RequestAdu<'static>;
     type Error = Error;
 
-    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<RequestAdu>> {
+    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<RequestAdu<'static>>> {
         if let Some((hdr, pdu_data)) = self.decoder.decode(buf)? {
             let pdu = RequestPdu::try_from(pdu_data)?;
             Ok(Some(RequestAdu {
@@ -130,10 +133,10 @@ impl Decoder for ServerCodec {
     }
 }
 
-impl Encoder<RequestAdu> for ClientCodec {
+impl<'a> Encoder<RequestAdu<'a>> for ClientCodec {
     type Error = Error;
 
-    fn encode(&mut self, adu: RequestAdu, buf: &mut BytesMut) -> Result<()> {
+    fn encode(&mut self, adu: RequestAdu<'a>, buf: &mut BytesMut) -> Result<()> {
         if adu.disconnect {
             // The disconnect happens implicitly after letting this request
             // fail by returning an error. This will drop the attached
@@ -174,7 +177,7 @@ impl Encoder<ResponseAdu> for ServerCodec {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bytes::Bytes;
+    use crate::bytes::Bytes;
 
     mod client {
 
@@ -292,7 +295,7 @@ mod tests {
             assert_eq!(buf[5], 0x6);
             assert_eq!(buf[6], UNIT_ID);
 
-            let _ = buf.split_to(7);
+            drop(buf.split_to(7));
             let pdu: Bytes = req.try_into().unwrap();
             assert_eq!(buf, pdu);
         }

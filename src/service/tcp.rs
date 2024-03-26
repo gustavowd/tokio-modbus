@@ -1,20 +1,21 @@
-// SPDX-FileCopyrightText: Copyright (c) 2017-2023 slowtec GmbH <post@slowtec.de>
+// SPDX-FileCopyrightText: Copyright (c) 2017-2024 slowtec GmbH <post@slowtec.de>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::{
-    fmt,
-    io::{Error, ErrorKind},
+    fmt, io,
     sync::atomic::{AtomicU16, Ordering},
 };
 
-use futures_util::{sink::SinkExt as _, stream::StreamExt as _};
+use futures_util::{SinkExt as _, StreamExt as _};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
 
 use crate::{
     codec,
     frame::{tcp::*, *},
+    service::verify_response_header,
     slave::*,
+    Result,
 };
 
 const INITIAL_TRANSACTION_ID: TransactionId = 0;
@@ -57,9 +58,9 @@ where
         }
     }
 
-    fn next_request_adu<R>(&self, req: R, disconnect: bool) -> RequestAdu
+    fn next_request_adu<'a, R>(&self, req: R, disconnect: bool) -> RequestAdu<'a>
     where
-        R: Into<RequestPdu>,
+        R: Into<RequestPdu<'a>>,
     {
         RequestAdu {
             hdr: self.next_request_hdr(self.unit_id),
@@ -68,36 +69,26 @@ where
         }
     }
 
-    pub(crate) async fn call(&mut self, req: Request) -> Result<Response, Error> {
+    pub(crate) async fn call(&mut self, req: Request<'_>) -> Result<Response> {
         log::debug!("Call {:?}", req);
         let disconnect = req == Request::Disconnect;
         let req_adu = self.next_request_adu(req, disconnect);
         let req_hdr = req_adu.hdr;
+
+        self.framed.read_buffer_mut().clear();
 
         self.framed.send(req_adu).await?;
         let res_adu = self
             .framed
             .next()
             .await
-            .ok_or_else(Error::last_os_error)??;
+            .ok_or_else(io::Error::last_os_error)??;
 
         match res_adu.pdu {
-            ResponsePdu(Ok(res)) => verify_response_header(req_hdr, res_adu.hdr).and(Ok(res)),
-            ResponsePdu(Err(err)) => Err(Error::new(ErrorKind::Other, err)),
+            ResponsePdu(Ok(res)) => verify_response_header(&req_hdr, &res_adu.hdr).and(Ok(Ok(res))),
+            ResponsePdu(Err(err)) => Ok(Err(err.exception)),
         }
     }
-}
-
-fn verify_response_header(req_hdr: Header, rsp_hdr: Header) -> Result<(), Error> {
-    if req_hdr != rsp_hdr {
-        return Err(Error::new(
-            ErrorKind::InvalidData,
-            format!(
-                "Invalid response header: expected/request = {req_hdr:?}, actual/response = {rsp_hdr:?}"
-            ),
-        ));
-    }
-    Ok(())
 }
 
 impl<T> SlaveContext for Client<T> {
@@ -111,7 +102,73 @@ impl<T> crate::client::Client for Client<T>
 where
     T: fmt::Debug + AsyncRead + AsyncWrite + Send + Unpin,
 {
-    async fn call(&mut self, req: Request) -> Result<Response, Error> {
+    async fn call(&mut self, req: Request<'_>) -> Result<Response> {
         Client::call(self, req).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_same_headers() {
+        // Given
+        let req_hdr = Header {
+            unit_id: 0,
+            transaction_id: 42,
+        };
+        let rsp_hdr = Header {
+            unit_id: 0,
+            transaction_id: 42,
+        };
+
+        // When
+        let result = verify_response_header(&req_hdr, &rsp_hdr);
+
+        // Then
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn invalid_validate_not_same_unit_id() {
+        // Given
+        let req_hdr = Header {
+            unit_id: 0,
+            transaction_id: 42,
+        };
+        let rsp_hdr = Header {
+            unit_id: 5,
+            transaction_id: 42,
+        };
+
+        // When
+        let result = verify_response_header(&req_hdr, &rsp_hdr);
+
+        // Then
+        assert!(matches!(
+            result,
+            Err(err) if err.kind() == std::io::ErrorKind::InvalidData));
+    }
+
+    #[test]
+    fn invalid_validate_not_same_transaction_id() {
+        // Given
+        let req_hdr = Header {
+            unit_id: 0,
+            transaction_id: 42,
+        };
+        let rsp_hdr = Header {
+            unit_id: 0,
+            transaction_id: 86,
+        };
+
+        // When
+        let result = verify_response_header(&req_hdr, &rsp_hdr);
+
+        // Then
+        assert!(matches!(
+            result,
+            Err(err) if err.kind() == std::io::ErrorKind::InvalidData));
     }
 }
